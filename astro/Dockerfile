@@ -26,6 +26,6 @@ RUN mkdir -p /usr/local/airflow/feature-code
 
 
 # Copy feature-code if it exists
-COPY feature-code/ /usr/local/airflow/feature-code/
+# COPY feature-code/ /usr/local/airflow/feature-code/
 
 # Run DAG generation on container start
