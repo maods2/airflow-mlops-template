@@ -1,0 +1,16 @@
+# Python dependencies for feature-code jobs
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Machine learning
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+
+# GCP integration (if needed)
+google-cloud-bigquery>=3.11.0
+google-cloud-storage>=2.10.0
+
+# Logging and utilities
+python-dateutil>=2.8.2

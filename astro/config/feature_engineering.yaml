@@ -1,0 +1,41 @@
+dag_name: "feature_engineering_pipeline"
+type: "bigquery"
+description: "Feature engineering pipeline for creating ML features from raw data"
+schedule: "@daily"
+start_date: "2024, 1, 1"
+
+default_args:
+  owner: "ml_team"
+  retries: 1
+  retry_delay: "00:10:00"
+  email: ["ml-team@company.com"]
+  email_on_failure: true
+  email_on_retry: false
+
+tags: ["feature-engineering", "ml", "bigquery"]
+
+# Environment-specific parameters (only dataset names, no project IDs)
+environments:
+  dev:
+    dataset_id: "warehouse_dev"
+  qa:
+    dataset_id: "warehouse_qa"
+  prod:
+    dataset_id: "warehouse_prod"
+
+queries:
+  - task_id: "create_user_features"
+    sql_file: "feature_engineering_create_user_features.sql"
+    destination_table: "user_features_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+
+  - task_id: "create_product_features"
+    sql_file: "feature_engineering_create_product_features.sql"
+    destination_table: "product_features_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+
+  - task_id: "create_combined_features"
+    sql_file: "feature_engineering_create_combined_features.sql"
+    destination_table: "combined_features_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+    depends_on: ["create_user_features", "create_product_features"]

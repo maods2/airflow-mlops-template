@@ -1,0 +1,59 @@
+"""
+{{ description }}
+
+Generated BigQuery DAG: {{ dag_name }}
+"""
+
+from airflow.sdk import dag, task
+from airflow.providers.google.cloud.operators.bigquery import BigQueryExecuteQueryOperator
+from airflow.providers.google.cloud.sensors.bigquery import BigQueryJobSensor
+from pendulum import datetime
+from typing import Any, Dict
+
+# Default arguments
+default_args = {
+    "owner": "{{ default_args.owner | default('airflow') }}",
+    "retries": {{ default_args.retries | default(1) }},
+    "retry_delay": "{{ default_args.retry_delay | default('00:05:00') }}",
+    "email": {{ default_args.email | default([]) }},
+    "email_on_failure": {{ default_args.email_on_failure | default(false) }},
+    "email_on_retry": {{ default_args.email_on_retry | default(false) }}
+}
+
+@dag(
+    dag_id="{{ dag_name }}",
+    start_date=datetime({{ start_date | default('2024, 1, 1') }}),
+    schedule="{{ schedule | default('@daily') }}",
+    default_args=default_args,
+    description="{{ description | default('BigQuery DAG') }}",
+    tags={{ tags | default([]) }},
+    catchup=False,
+    max_active_runs=1
+)
+def {{ dag_name.lower().replace('-', '_') }}():
+    {% for query in queries %}
+    {{ query.task_id.lower().replace('-', '_') }} = BigQueryExecuteQueryOperator(
+        task_id="{{ query.task_id }}",
+        sql="""{{ query.sql | replace('"', '\\"') }}""",
+        {% if query.destination_table %}
+        destination_dataset_table="{{ project_id }}.{{ dataset_id }}.{{ query.destination_table }}",
+        {% endif %}
+        {% if query.write_disposition %}
+        write_disposition="{{ query.write_disposition }}",
+        {% endif %}
+        use_legacy_sql=False,
+        gcp_conn_id="google_cloud_default"
+    )
+    {% endfor %}
+    
+    # Define task dependencies
+    {% for query in queries %}
+    {% if query.depends_on %}
+    {% for dep in query.depends_on %}
+    {{ query.task_id.lower().replace('-', '_') }} >> {{ dep.lower().replace('-', '_') }}
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
+
+# Instantiate the DAG
+{{ dag_name.lower().replace('-', '_') }}()

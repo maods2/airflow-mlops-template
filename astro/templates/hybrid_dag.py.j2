@@ -1,0 +1,136 @@
+"""
+{{ description }}
+
+Generated Hybrid DAG: {{ dag_name }}
+"""
+
+from airflow.sdk import dag, task
+from airflow.providers.google.cloud.operators.bigquery import BigQueryExecuteQueryOperator
+from airflow.providers.google.cloud.operators.dataproc import (
+    DataprocCreateClusterOperator,
+    DataprocSubmitJobOperator,
+    DataprocDeleteClusterOperator
+)
+from pendulum import datetime
+from typing import Any, Dict
+
+# Default arguments
+default_args = {
+    "owner": "{{ default_args.owner | default('airflow') }}",
+    "retries": {{ default_args.retries | default(1) }},
+    "retry_delay": "{{ default_args.retry_delay | default('00:05:00') }}",
+    "email": {{ default_args.email | default([]) }},
+    "email_on_failure": {{ default_args.email_on_failure | default(false) }},
+    "email_on_retry": {{ default_args.email_on_retry | default(false) }}
+}
+
+@dag(
+    dag_id="{{ dag_name }}",
+    start_date=datetime({{ start_date | default('2024, 1, 1') }}),
+    schedule="{{ schedule | default('@daily') }}",
+    default_args=default_args,
+    description="{{ description | default('Hybrid DAG') }}",
+    tags={{ tags | default([]) }},
+    catchup=False,
+    max_active_runs=1
+)
+def {{ dag_name | snake_case }}():
+    # BigQuery tasks
+    {% for task in bigquery_tasks %}
+    {{ task.task_id | snake_case }} = BigQueryExecuteQueryOperator(
+        task_id="{{ task.task_id }}",
+        sql="""{{ task.sql | replace('"', '\\"') }}""",
+        {% if task.destination_table %}
+        destination_dataset_table="{{ project_id }}.{{ dataset_id }}.{{ task.destination_table }}",
+        {% endif %}
+        {% if task.write_disposition %}
+        write_disposition="{{ task.write_disposition }}",
+        {% endif %}
+        use_legacy_sql=False,
+        gcp_conn_id="google_cloud_default"
+    )
+    {% endfor %}
+    
+    # Create Dataproc cluster
+    create_cluster = DataprocCreateClusterOperator(
+        task_id="create_cluster",
+        project_id="{{ project_id }}",
+        cluster_config={
+            "master_config": {
+                "num_instances": 1,
+                "machine_type_uri": "n1-standard-2",
+                "disk_config": {
+                    "boot_disk_type": "pd-standard",
+                    "boot_disk_size_gb": 100
+                }
+            },
+            "worker_config": {
+                "num_instances": 2,
+                "machine_type_uri": "n1-standard-2",
+                "disk_config": {
+                    "boot_disk_type": "pd-standard",
+                    "boot_disk_size_gb": 100
+                }
+            }
+        },
+        region="{{ region }}",
+        cluster_name="{{ cluster_name }}",
+        gcp_conn_id="google_cloud_default"
+    )
+    
+    # Dataproc tasks
+    {% for task in dataproc_tasks %}
+    {{ task.task_id | snake_case }} = DataprocSubmitJobOperator(
+        task_id="{{ task.task_id }}",
+        project_id="{{ project_id }}",
+        job={
+            "reference": {"job_id": "{{ task.task_id }}-{{ ts_nodash }}"},
+            "placement": {"cluster_name": "{{ cluster_name }}"},
+            "{{ task.job_type }}_job": {
+                {% if task.job_type == 'pyspark' %}
+                "main_python_file_uri": "{{ task.main_python_file_uri }}",
+                {% elif task.job_type == 'spark' %}
+                "main_class": "{{ task.main_class }}",
+                "jar_file_uris": {{ task.jar_file_uris | default([]) }},
+                {% endif %}
+                "args": {{ task.args | default([]) }}
+            }
+        },
+        region="{{ region }}",
+        gcp_conn_id="google_cloud_default"
+    )
+    {% endfor %}
+    
+    # Delete cluster
+    delete_cluster = DataprocDeleteClusterOperator(
+        task_id="delete_cluster",
+        project_id="{{ project_id }}",
+        cluster_name="{{ cluster_name }}",
+        region="{{ region }}",
+        gcp_conn_id="google_cloud_default",
+        trigger_rule="all_done"
+    )
+    
+    # Define task dependencies
+    {% if bigquery_tasks and dataproc_tasks %}
+    # BigQuery tasks run first, then Dataproc
+    {% for task in bigquery_tasks %}
+    {% if task.depends_on %}
+    {% for dep in task.depends_on %}
+    {{ dep | snake_case }} >> {{ task.task_id | snake_case }}
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
+    
+    # All BigQuery tasks complete before Dataproc
+    [{% for task in bigquery_tasks %}{{ task.task_id | snake_case }}{% if not loop.last %}, {% endif %}{% endfor %}] >> create_cluster
+    
+    create_cluster >> [
+        {% for task in dataproc_tasks %}
+        {{ task.task_id | snake_case }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ] >> delete_cluster
+    {% endif %}
+
+# Instantiate the DAG
+{{ dag_name | snake_case }}()

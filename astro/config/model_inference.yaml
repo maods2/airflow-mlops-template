@@ -1,0 +1,43 @@
+dag_name: "model_inference_pipeline"
+type: "dataproc"
+description: "Model inference pipeline for batch predictions using trained ML models"
+schedule: "@hourly"
+start_date: "2024, 1, 1"
+
+default_args:
+  owner: "ml_team"
+  retries: 1
+  retry_delay: "00:15:00"
+  email: ["ml-team@company.com"]
+  email_on_failure: true
+  email_on_retry: false
+
+tags: ["inference", "ml", "dataproc", "predictions"]
+
+# Environment-specific parameters (only cluster name, no project IDs/regions/buckets)
+environments:
+  dev:
+    cluster_name: "inference-cluster-dev"
+  qa:
+    cluster_name: "inference-cluster-qa"
+  prod:
+    cluster_name: "inference-cluster"
+
+jobs:
+  - task_id: "load_model_and_predict"
+    job_type: "pyspark"
+    main_python_file_uri: "gs://{bucket_name}/scripts/batch_inference.py"
+    args:
+      - "--model-path=gs://{bucket_name}/models/latest_model"
+      - "--input-table={project_id}.{dataset_id}.inference_data_{{ ds_nodash }}"
+      - "--output-table={project_id}.{dataset_id}.predictions_{{ ds_nodash }}"
+      - "--date={{ ds }}"
+
+  - task_id: "post_process_predictions"
+    job_type: "pyspark"
+    main_python_file_uri: "gs://{bucket_name}/scripts/post_process_predictions.py"
+    args:
+      - "--predictions-table={project_id}.{dataset_id}.predictions_{{ ds_nodash }}"
+      - "--output-table={project_id}.{dataset_id}.final_predictions_{{ ds_nodash }}"
+      - "--date={{ ds }}"
+    depends_on: ["load_model_and_predict"]

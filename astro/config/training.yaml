@@ -1,0 +1,68 @@
+dag_name: "ml_training_pipeline"
+type: "hybrid"
+description: "Machine learning training pipeline with data preprocessing and model training"
+schedule: "@weekly"
+start_date: "2024, 1, 1"
+
+default_args:
+  owner: "ml_team"
+  retries: 1
+  retry_delay: "00:15:00"
+  email: ["ml-team@company.com"]
+  email_on_failure: true
+  email_on_retry: false
+
+tags: ["ml", "training", "dataproc", "bigquery", "pipeline"]
+
+# Environment-specific parameters (only dataset names and cluster names, no project IDs/regions/buckets)
+environments:
+  dev:
+    dataset_id: "warehouse_dev"
+    cluster_name: "ml-training-cluster-dev"
+  qa:
+    dataset_id: "warehouse_qa"
+    cluster_name: "ml-training-cluster-qa"
+  prod:
+    dataset_id: "warehouse_prod"
+    cluster_name: "ml-training-cluster"
+
+bigquery_tasks:
+  - task_id: "prepare_training_data"
+    sql_file: "training_prepare_training_data.sql"
+    destination_table: "training_data_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+
+  - task_id: "validate_training_data"
+    sql_file: "training_validate_training_data.sql"
+    destination_table: "training_data_stats_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+    depends_on: ["prepare_training_data"]
+
+dataproc_tasks:
+  - task_id: "preprocess_data"
+    job_type: "pyspark"
+    main_python_file_uri: "gs://{bucket_name}/scripts/preprocess_data.py"
+    args: 
+      - "--input-table={project_id}.{dataset_id}.training_data_{{ ds_nodash }}"
+      - "--output-table={project_id}.{dataset_id}.preprocessed_data_{{ ds_nodash }}"
+      - "--date={{ ds }}"
+    depends_on: ["validate_training_data"]
+
+  - task_id: "train_model"
+    job_type: "pyspark"
+    main_python_file_uri: "gs://{bucket_name}/scripts/train_model.py"
+    args:
+      - "--input-table={project_id}.{dataset_id}.preprocessed_data_{{ ds_nodash }}"
+      - "--model-path=gs://{bucket_name}/models/model_{{ ds_nodash }}"
+      - "--date={{ ds }}"
+    depends_on: ["preprocess_data"]
+
+  - task_id: "evaluate_model"
+    job_type: "pyspark"
+    main_python_file_uri: "gs://{bucket_name}/scripts/evaluate_model.py"
+    args:
+      - "--model-path=gs://{bucket_name}/models/model_{{ ds_nodash }}"
+      - "--test-table={project_id}.{dataset_id}.test_data_{{ ds_nodash }}"
+      - "--metrics-table={project_id}.{dataset_id}.model_metrics_{{ ds_nodash }}"
+      - "--date={{ ds }}"
+    depends_on: ["train_model"]

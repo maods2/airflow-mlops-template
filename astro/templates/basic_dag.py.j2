@@ -1,0 +1,74 @@
+"""
+{{ description }}
+
+Generated DAG: {{ dag_name }}
+"""
+
+from airflow.sdk import dag, task
+from airflow.operators.bash import BashOperator
+from pendulum import datetime
+from typing import Any, Dict
+
+# Default arguments
+default_args = {
+    "owner": "{{ default_args.owner | default('airflow') }}",
+    "retries": {{ default_args.retries | default(1) }},
+    "retry_delay": "{{ default_args.retry_delay | default('00:05:00') }}",
+    "email": {{ default_args.email | default([]) }},
+    "email_on_failure": {{ default_args.email_on_failure | default(false) }},
+    "email_on_retry": {{ default_args.email_on_retry | default(false) }}
+}
+
+@dag(
+    dag_id="{{ dag_name }}",
+    start_date=datetime({{ start_date | default('2024, 1, 1') }}),
+    schedule="{{ schedule | default('@daily') }}",
+    default_args=default_args,
+    description="{{ description | default('Basic DAG') }}",
+    tags={{ tags | default([]) }},
+    catchup=False,
+    max_active_runs=1
+)
+def {{ dag_name | snake_case }}():
+    {% for task in tasks %}
+    {% if task.type == 'python' %}
+    @task(task_id="{{ task.task_id }}")
+    def {{ task.task_id | snake_case }}(**context) -> Any:
+        """
+        {{ task.description | default('Python task') }}
+        """
+        # Import your Python function here
+        # from feature_code.src.main import your_function
+        # return your_function()
+        pass
+    
+    {% elif task.type == 'bash' %}
+    {{ task.task_id | snake_case }} = BashOperator(
+        task_id="{{ task.task_id }}",
+        bash_command="{{ task.bash_command }}",
+        {% if task.depends_on %}
+        depends_on_past=False,
+        {% endif %}
+    )
+    {% elif task.type == 'sql' %}
+    {{ task.task_id | snake_case }} = BashOperator(
+        task_id="{{ task.task_id }}",
+        bash_command="echo 'SQL task: {{ task.sql_query }}'",
+        {% if task.depends_on %}
+        depends_on_past=False,
+        {% endif %}
+    )
+    {% endif %}
+    {% endfor %}
+    
+    # Define task dependencies
+    {% for task in tasks %}
+    {% if task.depends_on %}
+    {% for dep in task.depends_on %}
+    {{ task.task_id | snake_case }} >> {{ dep | snake_case }}
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
+
+# Instantiate the DAG
+{{ dag_name | snake_case }}()

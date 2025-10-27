@@ -1,0 +1,44 @@
+dag_name: "data_ingestion_pipeline"
+type: "bigquery"
+description: "Data ingestion pipeline for processing raw data from various sources into BigQuery"
+schedule: "@daily"
+start_date: "2024, 1, 1"
+
+default_args:
+  owner: "data_team"
+  retries: 2
+  retry_delay: "00:10:00"
+  email: ["data-team@company.com"]
+  email_on_failure: true
+  email_on_retry: false
+
+tags: ["ingestion", "bigquery", "data-pipeline"]
+
+# Environment-specific parameters (only dataset names, no project IDs)
+environments:
+  dev:
+    source_dataset: "raw_data_dev"
+    target_dataset: "warehouse_dev"
+  qa:
+    source_dataset: "raw_data_qa"
+    target_dataset: "warehouse_qa"
+  prod:
+    source_dataset: "raw_data_prod"
+    target_dataset: "warehouse_prod"
+
+queries:
+  - task_id: "extract_raw_data"
+    sql_file: "ingestion_extract_raw_data.sql"
+    destination_table: "raw_data_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+
+  - task_id: "validate_data_quality"
+    sql_file: "ingestion_validate_data_quality.sql"
+    destination_table: "validated_data_{{ ds_nodash }}"
+    write_disposition: "WRITE_TRUNCATE"
+    depends_on: ["extract_raw_data"]
+
+  - task_id: "load_to_warehouse"
+    sql_file: "ingestion_load_to_warehouse.sql"
+    write_disposition: "WRITE_APPEND"
+    depends_on: ["validate_data_quality"]
